@@ -8,6 +8,7 @@
 #include <pthread.h>
 #include <errno.h>
 #include <unistd.h>
+#include <ctime>
 #include <stdlib.h>
 
 #include "reqchannel.h"
@@ -32,7 +33,6 @@ void process_newchannel(RequestChannel* _channel) {
 }
 
 void process_request(RequestChannel* _channel, string _request) {
-
 	if (_request.compare(0, 5, "hello") == 0) {
 		_channel->cwrite("hello to you too");
 	}
@@ -66,6 +66,8 @@ void* handle_process_loop (void* _channel) {
 
 
 int main(int argc, char * argv[]) {
+	srand(time(NULL));
+
 	newchannel_lock = PTHREAD_MUTEX_INITIALIZER;
 	RequestChannel control_channel("control", RequestChannel::SERVER_SIDE);
 	handle_process_loop (&control_channel);	
