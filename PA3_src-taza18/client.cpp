@@ -278,7 +278,9 @@ int main(int argc, char * argv[]) {
         // channel data struct array
         channel_data *cdata[w];
 
-        // Get starting timepoint 
+        /* Get starting timepoint 
+        * https://www.geeksforgeeks.org/measure-execution-time-function-cpp/
+        * */
         auto start = high_resolution_clock::now(); 
 
         for(int i = 0; i < w; i++) {
