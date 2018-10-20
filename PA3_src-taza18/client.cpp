@@ -16,6 +16,10 @@
 #include <sys/time.h>
 #include <cassert>
 #include <assert.h>
+#include <algorithm> 
+#include <chrono> 
+#include <iostream> 
+using namespace std::chrono; 
 
 #include <cmath>
 #include <numeric>
@@ -23,6 +27,7 @@
 
 #include <list>
 #include <vector>
+#include <time.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -128,8 +133,8 @@ void* worker_thread_function(void* arg) {
 /*--------------------------------------------------------------------------*/
 
 int main(int argc, char * argv[]) {
-    int n = 100; //default number of requests per "patient"
-    int w = 50; //default number of worker threads
+    int n = 10000; //default number of requests per "patient"
+    int w = 2000; //default number of worker threads
     int opt = 0;
     while ((opt = getopt(argc, argv, "n:w:")) != -1) {
         switch (opt) {
@@ -245,6 +250,10 @@ int main(int argc, char * argv[]) {
       
             cout << "Main: completed thread id :" << i ;
             cout << "  exiting with status :" << status << endl;
+
+            // delete that thread's struct
+            worker_data *temp = wdata[i];
+            free(temp);
         }
         cout << "Done populating request buffer" << endl;
 
@@ -268,6 +277,9 @@ int main(int argc, char * argv[]) {
 
         // channel data struct array
         channel_data *cdata[w];
+
+        // Get starting timepoint 
+        auto start = high_resolution_clock::now(); 
 
         for(int i = 0; i < w; i++) {
             chan->cwrite("newchannel");
@@ -314,5 +326,16 @@ int main(int argc, char * argv[]) {
         cout << "All Done!!!" << endl; 
 
 		hist.print ();
+
+        // Get ending timepoint 
+        auto stop = high_resolution_clock::now(); 
+  
+        // Get duration. Substart timepoints to  
+        // get durarion. To cast it to proper unit 
+        // use duration cast method 
+        auto duration = duration_cast<microseconds>(stop - start); 
+    
+        cout << "Time taken by function: "
+            << duration.count() << " microseconds" << endl; 
     }
 }
