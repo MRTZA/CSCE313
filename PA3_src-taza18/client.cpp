@@ -134,7 +134,7 @@ void* worker_thread_function(void* arg) {
 
 int main(int argc, char * argv[]) {
     int n = 10000; //default number of requests per "patient"
-    int w = 2000; //default number of worker threads
+    int w = 500; //default number of worker threads
     int opt = 0;
     while ((opt = getopt(argc, argv, "n:w:")) != -1) {
         switch (opt) {
@@ -297,7 +297,7 @@ int main(int argc, char * argv[]) {
 
             cdata[i] = temp;
 
-            cout << "Creating channel thread... " << endl;
+            //cout << "Creating channel thread... " << endl;
             crc = pthread_create(&cthreads[i], &cattr, worker_thread_function, (void *)cdata[i]);
 
             if (crc) {
@@ -315,8 +315,8 @@ int main(int argc, char * argv[]) {
                 exit(-1);
             }
       
-            cout << "Main: completed thread id :" << i ;
-            cout << "  exiting with status :" << cstatus << endl;
+            //cout << "Main: completed thread id :" << i ;
+            //cout << "  exiting with status :" << cstatus << endl;
 
             // delete that thread's struct
             channel_data *temp = cdata[i];
