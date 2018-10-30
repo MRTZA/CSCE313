@@ -35,6 +35,32 @@
 #include "Histogram.h"
 using namespace std;
 
+#define NUM_REQUEST_THREADS  3
+#define NUM_STAT_THREADS  3
+
+// struct to populate the request buffer
+struct worker_data {
+    // pointer to the safe buffer
+    BoundedBuffer *request_buffer;
+
+    // number of requests
+    int num_requests;
+
+    // name of patient 
+    string name;
+};
+
+// data to request response from server
+struct channel_data { 
+    // request channel 
+    RequestChannel *channel;
+
+    // safe buffer to get info from
+    BoundedBuffer *request_buffer;
+
+    // histogram to update
+    Histogram *hist;
+};
 
 void* request_thread_function(void* arg) {
 	/*
@@ -51,9 +77,18 @@ void* request_thread_function(void* arg) {
 		create 3 copies of this function, one for each "patient".
 	 */
 
-	for(;;) {
+	// cast to struct 
+    worker_data *d = static_cast<worker_data*>(arg); 
 
+    // push data string
+    string s = "data " + d->name;
+
+    // populate the buffer
+	for(int i = 0; i < d->num_requests; i++) {
+        d->request_buffer->push(s);
 	}
+
+    cout << "Safe Buffer Populated Successfully For: " << d->name << endl;
 }
 
 void* worker_thread_function(void* arg) {
@@ -72,8 +107,24 @@ void* worker_thread_function(void* arg) {
 		whether you used "new" for it.
      */
 
+    // cast to struct 
+    channel_data *d = static_cast<channel_data*>(arg); 
+    int c = 0;
     while(true) {
+        string request = d->request_buffer->pop();
+        d->channel->cwrite(request);
 
+        if(request == "quit") {
+            delete d->channel;
+            break;
+        }else{
+            //cout << "Processing request " << c << endl;
+            string response = d->channel->cread();
+            c++;
+
+            // replace with, push to appropriate bounded buffer
+            //d->hist->update (request, response);
+        }
     }
 }
 
@@ -99,8 +150,8 @@ void* stat_thread_function(void* arg) {
 /*--------------------------------------------------------------------------*/
 
 int main(int argc, char * argv[]) {
-    int n = 100; //default number of requests per "patient"
-    int w = 1; //default number of worker threads
+    int n = 600; //default number of requests per "patient"
+    int w = 5; //default number of worker threads
     int b = 3 * n; // default capacity of the request buffer, you should change this default
     int opt = 0;
     while ((opt = getopt(argc, argv, "n:w:b:")) != -1) {
@@ -131,36 +182,119 @@ int main(int argc, char * argv[]) {
         BoundedBuffer request_buffer(b);
 		Histogram hist;
 
+        /* Sequential filling of buffer *************
         for(int i = 0; i < n; ++i) {
             request_buffer.push("data John Smith");
             request_buffer.push("data Jane Smith");
             request_buffer.push("data Joe Smith");
         }
         cout << "Done populating request buffer" << endl;
+        *********************************************/
 
-        cout << "Pushing quit requests... ";
-        for(int i = 0; i < w; ++i) {
+        /* Multithreaded filling of buffer 
+        https://www.tutorialspoint.com/cplusplus/cpp_multithreading.htm */
+        pthread_t threads[NUM_REQUEST_THREADS + w + NUM_STAT_THREADS];
+        int numThreads = NUM_REQUEST_THREADS + w + NUM_STAT_THREADS;
+        int rc; 
+
+        // variables for waiting on thread
+        pthread_attr_t attr;
+        void *status;
+
+        // create an array of pointers
+        worker_data *wdata[3];
+        //memset(threads, 0, sizeof(threads));
+
+        const string names[3] = { "John Smith", "Jane Smith", "Joe Smith" };
+        for(int i = 0; i < 3; i++) {
+            // worker_data *temp = static_cast<worker_data *>(malloc(sizeof(worker_data)));
+            worker_data *temp = new worker_data();
+            // memset(temp, 0, sizeof(worker_data));
+
+            temp->request_buffer = &request_buffer;
+            temp->name = names[i];
+            temp->num_requests = n;
+
+            wdata[i] = temp;
+        }
+
+        // Initialize and set thread joinable
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+
+        for(int i = 0; i < NUM_REQUEST_THREADS; i++) {
+            cout << "Creating worker thread... " << endl;
+            rc = pthread_create(&threads[i], &attr, request_thread_function, (void *)wdata[i]);
+
+            if (rc) {
+                cout << "Error:unable to create thread," << rc << endl;
+                exit(-1);
+            }
+        }
+
+
+
+        // cout << "Pushing quit requests... ";
+        // for(int i = 0; i < w; ++i) {
+        //     request_buffer.push("quit");
+        // }
+        // cout << "done." << endl;
+
+        // channel data struct array
+        channel_data *cdata[w];
+
+        for(int i = 3; i < w+3; i++) {
+
+            chan->cwrite("newchannel");
+		    string s = chan->cread ();
+            RequestChannel *workerChannel = new RequestChannel(s, RequestChannel::CLIENT_SIDE);
+
+            channel_data *temp = new channel_data();
+
+            // populate the temp struct
+            temp->channel = workerChannel;
+            temp->hist = &hist;
+            temp->request_buffer = &request_buffer;
+
+            cdata[i-3] = temp;
+
+            cout << "Creating channel thread... " << endl;
+            rc = pthread_create(&threads[i], &attr, worker_thread_function, (void *)cdata[i-3]);
+
+            if (rc) {
+                cout << "Error:unable to create thread," << rc << endl;
+                exit(-1);
+            }
             request_buffer.push("quit");
         }
-        cout << "done." << endl;
 
-	
-        chan->cwrite("newchannel");
-		string s = chan->cread ();
-        RequestChannel *workerChannel = new RequestChannel(s, RequestChannel::CLIENT_SIDE);
+        // for loop for stat threads
 
-        while(true) {
-            string request = request_buffer.pop();
-			workerChannel->cwrite(request);
 
-			if(request == "quit") {
-			   	delete workerChannel;
-                break;
-            }else{
-				string response = workerChannel->cread();
-				hist.update (request, response);
-			}
+        // free attribute and wait for the other threads
+        pthread_attr_destroy(&attr);
+        for(int i = 0; i < numThreads-NUM_STAT_THREADS; i++ ) {
+            rc = pthread_join(threads[i], &status);
+            if (rc) {
+                cout << "Error:unable to join," << rc << endl;
+                exit(-1);
+            }
+      
+            cout << "Main: completed thread id :" << i ;
+            cout << "  exiting with status :" << status << endl;
+
+            // if (i < 3) {
+            //     // delete that thread's struct
+            //     worker_data *temp = wdata[i];
+            //     free(temp);
+            // } else {
+            //     request_buffer.push("quit");
+            //     // delete that thread's struct
+            //     channel_data *temp = cdata[i-3];
+            //     free(temp);
+            // }
         }
+
         chan->cwrite ("quit");
         delete chan;
         cout << "All Done!!!" << endl; 
