@@ -13,10 +13,10 @@ Histogram.o: Histogram.h Histogram.cpp
 
 
 dataserver: dataserver.cpp reqchannel.o 
-	g++ -g -w -Wall -O1 -std=c++11 -o dataserver dataserver.cpp reqchannel.o -lpthread -lrt
+	g++ -g -w -Wall -O1 -std=c++11 -o dataserver dataserver.cpp reqchannel.o -lpthread
 
 client: client.cpp reqchannel.o BoundedBuffer.o Histogram.o
-	g++ -g -w -Wall -O1 -std=c++11 -o client client.cpp reqchannel.o BoundedBuffer.o Histogram.o -lpthread -lrt
+	g++ -g -w -Wall -O1 -std=c++11 -o client client.cpp reqchannel.o BoundedBuffer.o Histogram.o -lpthread
 
 clean:
 	rm -rf *.o fifo* dataserver client
