@@ -171,14 +171,17 @@ void* stat_thread_function(void* arg) {
 
     while(true) {
         string response = d->stat_buffer->pop();
+        cout << "Request: " << request << " Response: " << response << endl;
 
-        d->hist->update(request, response);
+        if(response != "") {
+            d->hist->update(request, response);
 
-        numHandled++;
+            numHandled++;
 
-        // end if last request is handled
-        if(numHandled == d->numRequests) {
-            break;
+            // end if last request is handled
+            if(numHandled == d->numRequests) {
+                break;
+            }
         }
     }
 
