@@ -123,13 +123,14 @@ void* worker_thread_function(void* arg) {
      */
 
     // identifiers for stat buffers
-    string statBufferId[3] = {"data John Smith", "data Jane Smith", "data Joe Smith"};
+    string statBufferId[NUM_CLIENTS] = {"data John Smith", "data Jane Smith", "data Joe Smith"};
 
     // cast to struct 
     worker_data *d = static_cast<worker_data*>(arg); 
 
     while(true) {
         string request = d->request_buffer->pop();
+        //cout << "Request: " << request << endl;
         d->channel->cwrite(request);
 
         if(request == "quit") {
@@ -137,14 +138,17 @@ void* worker_thread_function(void* arg) {
             break;
         }else{
             //cout << "Processing request " << c << endl;
-            string response = d->channel->cread();
+            string response = "";
+            response = d->channel->cread();
 
             // push to appropriate bounded buffer
-            for(int i = 0; i < 3; i++) {
+            for(int i = 0; i < NUM_CLIENTS; i++) {
+                
                 if(request == statBufferId[i]) {
-                // if so, copy the response into that buffer
-                d->stat_buffers[i]->push(response);
-                break;
+                    // if so, copy the response into that buffer
+                    d->stat_buffers[i]->push(response);
+                    //cout << " Push Stat Buffer: " << i << " Request: " << request << " Response: " << response << " Size: " << d->stat_buffers[i]->size() << endl;
+                    break;
                 }
             }
         }
@@ -171,18 +175,16 @@ void* stat_thread_function(void* arg) {
 
     while(true) {
         string response = d->stat_buffer->pop();
-        cout << "Request: " << request << " Response: " << response << endl;
 
-        if(response != "") {
-            d->hist->update(request, response);
-
+        if(response != "" && response != " " && response != "unknown request") {
+            //cout << "Pop Stat Buffer: " << " Request: " << request << " Response: " << response << " Size: " << d->stat_buffer->size() << endl;
             numHandled++;
-
-            // end if last request is handled
-            if(numHandled == d->numRequests) {
-                break;
-            }
+            //cout << "Response: " << response << endl;
+            cout << "NumHandled: " << numHandled << " Request: " << request << endl;
+            d->hist->update(request, response);
         }
+
+        if(numHandled == d->numRequests) { break; }
     }
 
     return nullptr;
@@ -194,9 +196,9 @@ void* stat_thread_function(void* arg) {
 /*--------------------------------------------------------------------------*/
 
 int main(int argc, char * argv[]) {
-    int n = 100; //default number of requests per "patient"
-    int w = 10; //default number of worker threads
-    int b = 3 * n; // default capacity of the request buffer, you should change this default
+    int n = 10; //default number of requests per "patient"
+    int w = 5; //default number of worker threads
+    int b = n; // default capacity of the request buffer, you should change this default
     int opt = 0;
     while ((opt = getopt(argc, argv, "n:w:b:")) != -1) {
         switch (opt) {
@@ -228,7 +230,7 @@ int main(int argc, char * argv[]) {
         BoundedBuffer request_buffer(b);
         BoundedBuffer *stat_buffers[NUM_CLIENTS];
 		Histogram hist;
-        const string client_names[NUM_CLIENTS] = { "John Smith", "Jane Smith", "Joe Smith" };
+        const string client_names[NUM_CLIENTS] = {"John Smith", "Jane Smith", "Joe Smith"};
 
         // Set stat buffer info
         for(int i = 0; i < NUM_CLIENTS; i++) {

@@ -8,6 +8,8 @@
 #include <mutex>
 using namespace std;
 
+#define NUM_CLIENTS 3;
+
 class Histogram {
 private:
 	int hist [3][10];					// histogram for each person with 10 bins each
@@ -20,7 +22,9 @@ private:
      * https://mfreiholz.de/posts/make-a-class-thread-safe-cpp/
      * 
      * *********************************************************/
-    mutable mutex _mtx;
+    //mutable mutex _mtx;
+
+    //bool threadsComplete[NUM_CLIENTS];
 
 public:
     Histogram();
