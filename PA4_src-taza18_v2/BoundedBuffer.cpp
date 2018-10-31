@@ -5,6 +5,9 @@ using namespace std;
 
 BoundedBuffer::BoundedBuffer(int _cap) {
 	max_size = _cap;
+	pthread_mutex_init(&m, nullptr);
+    pthread_cond_init(&cons, nullptr);
+    pthread_cond_init(&prod, nullptr);
 }
 
 BoundedBuffer::~BoundedBuffer() {

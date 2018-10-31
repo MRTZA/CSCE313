@@ -5,6 +5,8 @@
 #include <queue>
 #include <string>
 #include <mutex>
+#include <condition_variable>
+#include <pthread.h>
 using namespace std;
 
 class BoundedBuffer {
