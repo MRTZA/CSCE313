@@ -35,6 +35,44 @@
 #include "Histogram.h"
 using namespace std;
 
+// struct to populate the request buffer
+struct request_data {
+    // pointer to the safe buffer
+    BoundedBuffer *request_buffer;
+
+    // number of requests
+    int num_requests;
+
+    // name of patient 
+    string name;
+};
+
+// data to request response from server
+struct worker_data { 
+    // request channel 
+    RequestChannel *channel;
+
+    // safe buffer to get info from
+    BoundedBuffer *request_buffer;
+
+    // stat buffers
+    BoundedBuffer **stat_buffers;
+};
+
+// data to send responses to histogram
+struct stat_data {
+    // histogram to update
+    Histogram *hist;
+
+    // stat buffer to pull from 
+    BoundedBuffer *stat_buffer;
+
+    // name of client
+    string name;
+
+    // number of requests
+    int numRequests;
+};
 
 void* request_thread_function(void* arg) {
 	/*
@@ -51,9 +89,18 @@ void* request_thread_function(void* arg) {
 		create 3 copies of this function, one for each "patient".
 	 */
 
-	for(;;) {
+	// cast to struct 
+    request_data *d = static_cast<request_data*>(arg); 
 
+    // push data string
+    string s = "data " + d->name;
+
+    // populate the buffer
+	for(int i = 0; i < d->num_requests; i++) {
+        d->request_buffer->push(s);
 	}
+
+    cout << "Safe Buffer Populated Successfully For: " << d->name << endl;
 }
 
 void* worker_thread_function(void* arg) {
@@ -72,9 +119,35 @@ void* worker_thread_function(void* arg) {
 		whether you used "new" for it.
      */
 
-    while(true) {
+    // identifiers for stat buffers
+    string statBufferId[3] = {"data John Smith", "data Jane Smith", "data Joe Smith"};
 
+    // cast to struct 
+    worker_data *d = static_cast<worker_data*>(arg); 
+
+    while(true) {
+        string request = d->request_buffer->pop();
+        d->channel->cwrite(request);
+
+        if(request == "quit") {
+            delete d->channel;
+            break;
+        }else{
+            //cout << "Processing request " << c << endl;
+            string response = d->channel->cread();
+
+            // push to appropriate bounded buffer
+            for(int i = 0; i < 3; i++) {
+                if(request == statBufferId[i]) {
+                // if so, copy the response into that buffer
+                d->stat_buffers[i]->push(response);
+                break;
+                }
+            }
+        }
     }
+
+    return nullptr;
 }
 
 void* stat_thread_function(void* arg) {
@@ -87,10 +160,26 @@ void* stat_thread_function(void* arg) {
         histogram, does the Histogram class need to be thread-safe????
 
      */
+    // cast to struct 
+    stat_data *d = static_cast<stat_data*>(arg);
 
-    for(;;) {
+    string request = "data" + d->name; 
+    int numHandled = 0;
 
+    while(true) {
+        string response = d->stat_buffer->pop();
+
+        d->hist->update(request, response);
+
+        numHandled++;
+
+        // end if last request is handled
+        if(numHandled == d->numRequests) {
+            break;
+        }
     }
+
+    return nullptr;
 }
 
 
