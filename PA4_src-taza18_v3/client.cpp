@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <signal.h>
 
 #include "reqchannel.h"
 #include "BoundedBuffer.h"
@@ -77,6 +78,19 @@ struct stat_data {
     int numRequests;
 };
 
+struct alarm_data {
+    Histogram *hist;
+};
+alarm_data *h_alarm_data = new alarm_data();
+
+void signal_handler(int signum) {
+    system("clear");
+
+    h_alarm_data->hist->print();
+
+    alarm(2);
+}
+
 void* request_thread_function(void* arg) {
 	/*
 		Fill in this function.
@@ -103,7 +117,7 @@ void* request_thread_function(void* arg) {
         d->request_buffer->push(s);
 	}
 
-    cout << "Safe Buffer Populated Successfully For: " << d->name << endl;
+    //cout << "Safe Buffer Populated Successfully For: " << d->name << endl;
 }
 
 void* worker_thread_function(void* arg) {
@@ -190,7 +204,7 @@ void* stat_thread_function(void* arg) {
 
 int main(int argc, char * argv[]) {
     int n = 100000; //default number of requests per "patient"
-    int w = 500; //default number of worker threads
+    int w = 1000; //default number of worker threads
     int b = 500; // default capacity of the request buffer, you should change this default
     int opt = 0;
     while ((opt = getopt(argc, argv, "n:w:b:")) != -1) {
@@ -223,6 +237,12 @@ int main(int argc, char * argv[]) {
         BoundedBuffer request_buffer(b);
         BoundedBuffer *stat_buffers[NUM_CLIENTS];
 		Histogram hist;
+
+        // set up alarm
+        h_alarm_data->hist = &hist;
+        signal(SIGALRM, signal_handler);
+        alarm(2);
+
         const string client_names[NUM_CLIENTS] = {"John Smith", "Jane Smith", "Joe Smith"};
 
         // Set stat buffer info
@@ -314,7 +334,7 @@ int main(int argc, char * argv[]) {
         /* Multithreaded filling of request_buffer 
         https://www.tutorialspoint.com/cplusplus/cpp_multithreading.htm */
         for(int i = 0; i < NUM_CLIENTS; i++) {
-            cout << "Creating request thread... " << i << endl;
+            //cout << "Creating request thread... " << i << endl;
             r_error = pthread_create(&request_threads[i], &request_attr, request_thread_function, (void *)rdata[i]);
 
             if (r_error) {
@@ -335,7 +355,7 @@ int main(int argc, char * argv[]) {
 
         /* Multithreaded filling of histogram */
         for(int i = 0; i < NUM_CLIENTS; i++) {
-            cout << "Creating stat thread... " << i << endl;
+            //cout << "Creating stat thread... " << i << endl;
             s_error = pthread_create(&stat_threads[i], &stat_attr, stat_thread_function, (void *)sdata[i]);
 
             if (s_error) {
@@ -353,19 +373,19 @@ int main(int argc, char * argv[]) {
                 exit(-1);
             }
       
-            cout << "Main: completed request thread id :" << i ;
-            cout << "  exiting with status :" << request_status << endl;
+            //cout << "Main: completed request thread id :" << i ;
+            //cout << "  exiting with status :" << request_status << endl;
 
             // delete that thread's struct
             request_data *temp = rdata[i];
             free(temp);
         }
 
-        cout << "Pushing quit requests... ";
+        //cout << "Pushing quit requests... ";
         for(int i = 0; i < w; ++i) {
             request_buffer.push("quit");
         }
-        cout << "done." << endl;
+        //cout << "done." << endl;
 	
         // (join worker threads) free attribute and wait for the other threads
         pthread_attr_destroy(&worker_attr);
@@ -393,18 +413,23 @@ int main(int argc, char * argv[]) {
                 exit(-1);
             }
       
-            cout << "Main: completed stat thread id :" << i ;
-            cout << "  exiting with status :" << stat_status << endl;
+            //cout << "Main: completed stat thread id :" << i ;
+            //cout << "  exiting with status :" << stat_status << endl;
 
             // delete that thread's struct
             stat_data *temp = sdata[i];
             free(temp);
         }
 
+        alarm(0);
+        signal(SIGALRM, SIG_DFL);
+
         chan->cwrite ("quit");
         delete chan;
+
         cout << "All Done!!!" << endl; 
 
+        system("clear");
 		hist.print ();
 
         // Get ending timepoint 
@@ -415,7 +440,9 @@ int main(int argc, char * argv[]) {
         // use duration cast method 
         auto duration = duration_cast<microseconds>(stop - start); 
     
-        cout << "Time taken by function: "
-            << duration.count() << " microseconds" << endl;
+        cout << "Took "
+            << duration.count() << " seconds" << endl;
+        
+        system("rm -rf fifo*");
     }
 }
