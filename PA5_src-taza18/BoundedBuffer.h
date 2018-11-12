@@ -17,13 +17,18 @@ private:
 
     pthread_mutex_t m;
     pthread_cond_t cons;
-    pthread_cond_t prod;	
+    pthread_cond_t prod;
+
 public:
     BoundedBuffer(int);
 	~BoundedBuffer();
 	int size();
     void push (string);
     string pop();
+
+    bool isEmpty(void) {
+      return (this->size() == 0);
+    }	
 };
 
 #endif /* BoundedBuffer_ */
