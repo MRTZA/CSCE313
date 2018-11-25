@@ -194,7 +194,7 @@ void* event_thread_function(void* arg) {
     vector<RequestChannel *> channels;
 
     for(auto it = d->channels.begin(); it != d->channels.end(); it++) {
-        // do we have a request to dequeue?
+
         if(!d->request_buffer->isEmpty()) {
 
             string request = d->request_buffer->pop();
@@ -210,7 +210,7 @@ void* event_thread_function(void* arg) {
         }
     }
 
-  // set up for the select call
+
   fd_set fds;
   FD_ZERO(&fds);
 
@@ -233,7 +233,7 @@ void* event_thread_function(void* arg) {
       break;
     }
 
-    // now wait on all of those file dscriptors
+
     err = select((highestFd + 1), &fds, nullptr, nullptr, nullptr);
 
     if(err == -1) {
@@ -241,7 +241,7 @@ void* event_thread_function(void* arg) {
       abort();
     }
 
-    // read from the channels
+
     for(auto it = d->channels.begin(); it != d->channels.end();) {
       int fd = (*it)->read_fd();
 
@@ -262,16 +262,16 @@ void* event_thread_function(void* arg) {
         requestMap[(*it)] = request;
 
         if(request == "quit") {
-          // remove the channel from the vector and close it later
+
           it = d->channels.erase(it);
           channels.push_back((*it));
         }
-        // if not, simply go to the next channel instead
+
         else {
           it++;
         }
       }
-      // if not, check the next one
+
       else {
         it++;
         continue;
@@ -317,11 +317,11 @@ void* stat_thread_function(void* arg) {
 /*--------------------------------------------------------------------------*/
 
 int main(int argc, char * argv[]) {
-    int n = 100000; //default number of requests per "patient"
+    int n = 1000; //default number of requests per "patient"
     int w = 500; //default number of worker threads
-    int b = 500; // default capacity of the request buffer, you should change this default
+    int b = 200; // default capacity of the request buffer, you should change this default
     int opt = 0;
-    int t = 1;
+    int t = 2;
     while ((opt = getopt(argc, argv, "n:w:b:")) != -1) {
         switch (opt) {
             case 'n':
@@ -345,6 +345,10 @@ int main(int argc, char * argv[]) {
 	}
 	else {
 
+        if(w >= (n * 3)) {
+            cout << "w should be less than 3n" << endl;
+            return -1;
+        }
         cout << "n == " << n << endl;
         cout << "w == " << w << endl;
         cout << "b == " << b << endl;
@@ -358,9 +362,9 @@ int main(int argc, char * argv[]) {
 		Histogram hist;
 
         // set up alarm
-        h_alarm_data->hist = &hist;
-        signal(SIGALRM, signal_handler);
-        alarm(2);
+        // h_alarm_data->hist = &hist;
+        // signal(SIGALRM, signal_handler);
+        // alarm(2);
 
         const string client_names[NUM_CLIENTS] = {"John Smith", "Jane Smith", "Joe Smith"};
 
@@ -598,7 +602,18 @@ int main(int argc, char * argv[]) {
         for(auto it = channels.begin(); it != channels.end(); it++) {
             delete (*it);
         }
- 
+
+        // alarm(0);
+        // signal(SIGALRM, SIG_DFL);
+
+        chan->cwrite ("quit");
+        delete chan;
+
+        cout << "All Done!!!" << endl; 
+
+        system("clear");
+		hist.print ();
+
         // (join stat threads) free attribute and wait for the other threads
         pthread_attr_destroy(&stat_attr);
         for(int i = 0; i < NUM_CLIENTS; i++ ) {
@@ -615,17 +630,6 @@ int main(int argc, char * argv[]) {
             stat_data *temp = sdata[i];
             free(temp);
         }
-
-        alarm(0);
-        signal(SIGALRM, SIG_DFL);
-
-        chan->cwrite ("quit");
-        delete chan;
-
-        cout << "All Done!!!" << endl; 
-
-        system("clear");
-		hist.print ();
 
         // Get ending timepoint 
         auto stop = high_resolution_clock::now(); 
