@@ -6,17 +6,18 @@
 #include <string>
 #include <mutex>
 #include <condition_variable>
+#include <pthread.h>
 using namespace std;
 
 class BoundedBuffer {
 private:
 	queue<string> q;
+
     int max_size;
 
     pthread_mutex_t m;
     pthread_cond_t cons;
-    pthread_cond_t prod;
-    
+    pthread_cond_t prod;	
 public:
     BoundedBuffer(int);
 	~BoundedBuffer();

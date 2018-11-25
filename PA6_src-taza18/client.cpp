@@ -29,17 +29,18 @@
 #include <errno.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <signal.h>
 
 #include "reqchannel.h"
 #include "BoundedBuffer.h"
 #include "Histogram.h"
 using namespace std;
+using namespace std::chrono; 
 
-#define NUM_REQUEST_THREADS  3
-#define NUM_STAT_THREADS  3
+#define NUM_CLIENTS 3
 
 // struct to populate the request buffer
-struct worker_data {
+struct request_data {
     // pointer to the safe buffer
     BoundedBuffer *request_buffer;
 
@@ -51,16 +52,44 @@ struct worker_data {
 };
 
 // data to request response from server
-struct channel_data { 
+struct worker_data { 
     // request channel 
     RequestChannel *channel;
 
     // safe buffer to get info from
     BoundedBuffer *request_buffer;
 
+    // stat buffers
+    BoundedBuffer **stat_buffers;
+};
+
+// data to send responses to histogram
+struct stat_data {
     // histogram to update
     Histogram *hist;
+
+    // stat buffer to pull from 
+    BoundedBuffer *stat_buffer;
+
+    // name of client
+    string name;
+
+    // number of requests
+    int numRequests;
 };
+
+struct alarm_data {
+    Histogram *hist;
+};
+alarm_data *h_alarm_data = new alarm_data();
+
+void signal_handler(int signum) {
+    system("clear");
+
+    h_alarm_data->hist->print();
+
+    alarm(2);
+}
 
 void* request_thread_function(void* arg) {
 	/*
@@ -78,7 +107,7 @@ void* request_thread_function(void* arg) {
 	 */
 
 	// cast to struct 
-    worker_data *d = static_cast<worker_data*>(arg); 
+    request_data *d = static_cast<request_data*>(arg); 
 
     // push data string
     string s = "data " + d->name;
@@ -88,7 +117,7 @@ void* request_thread_function(void* arg) {
         d->request_buffer->push(s);
 	}
 
-    cout << "Safe Buffer Populated Successfully For: " << d->name << endl;
+    //cout << "Safe Buffer Populated Successfully For: " << d->name << endl;
 }
 
 void* worker_thread_function(void* arg) {
@@ -107,25 +136,36 @@ void* worker_thread_function(void* arg) {
 		whether you used "new" for it.
      */
 
+    // identifiers for stat buffers
+    string statBufferId[NUM_CLIENTS] = {"data John Smith", "data Jane Smith", "data Joe Smith"};
+
     // cast to struct 
-    channel_data *d = static_cast<channel_data*>(arg); 
-    int c = 0;
+    worker_data *d = static_cast<worker_data*>(arg); 
+
     while(true) {
         string request = d->request_buffer->pop();
+        //cout << "Request: " << request << endl;
         d->channel->cwrite(request);
 
         if(request == "quit") {
             delete d->channel;
             break;
         }else{
-            //cout << "Processing request " << c << endl;
-            string response = d->channel->cread();
-            c++;
+            string response = "";
+            response = d->channel->cread();
 
-            // replace with, push to appropriate bounded buffer
-            //d->hist->update (request, response);
+            // push to appropriate bounded buffer
+            for(int i = 0; i < NUM_CLIENTS; i++) {
+                
+                if(request == statBufferId[i]) {
+                    d->stat_buffers[i]->push(response);
+                    break;
+                }
+            }
         }
     }
+
+    return nullptr;
 }
 
 void* stat_thread_function(void* arg) {
@@ -138,21 +178,34 @@ void* stat_thread_function(void* arg) {
         histogram, does the Histogram class need to be thread-safe????
 
      */
+    // cast to struct 
+    stat_data *d = static_cast<stat_data*>(arg);
 
-    for(;;) {
+    string request = "data " + d->name; 
+    int numHandled = 0;
 
+    while(true) {
+        string response = d->stat_buffer->pop();
+
+        if(response != "") {
+            numHandled++;
+            d->hist->update(request, response);
+        }
+
+        if(numHandled == d->numRequests) { break; }
     }
-}
 
+    return nullptr;
+}
 
 /*--------------------------------------------------------------------------*/
 /* MAIN FUNCTION */
 /*--------------------------------------------------------------------------*/
 
 int main(int argc, char * argv[]) {
-    int n = 600; //default number of requests per "patient"
-    int w = 5; //default number of worker threads
-    int b = 3 * n; // default capacity of the request buffer, you should change this default
+    int n = 100000; //default number of requests per "patient"
+    int w = 1000; //default number of worker threads
+    int b = 500; // default capacity of the request buffer, you should change this default
     int opt = 0;
     while ((opt = getopt(argc, argv, "n:w:b:")) != -1) {
         switch (opt) {
@@ -179,126 +232,217 @@ int main(int argc, char * argv[]) {
         cout << "b == " << b << endl;
 
         RequestChannel *chan = new RequestChannel("control", RequestChannel::CLIENT_SIDE);
+        
+        // Instantiate all "global" variables needed
         BoundedBuffer request_buffer(b);
+        BoundedBuffer *stat_buffers[NUM_CLIENTS];
 		Histogram hist;
 
-        /* Sequential filling of buffer *************
-        for(int i = 0; i < n; ++i) {
-            request_buffer.push("data John Smith");
-            request_buffer.push("data Jane Smith");
-            request_buffer.push("data Joe Smith");
+        // set up alarm
+        h_alarm_data->hist = &hist;
+        signal(SIGALRM, signal_handler);
+        alarm(2);
+
+        const string client_names[NUM_CLIENTS] = {"John Smith", "Jane Smith", "Joe Smith"};
+
+        // Set stat buffer info
+        for(int i = 0; i < NUM_CLIENTS; i++) {
+            stat_buffers[i] = new BoundedBuffer(b/3);
+
+            /* 
+            * [0] -> John Smith
+            * [1] -> Jane Smith
+            * [2] -> Joe Smith
+            * 
+            */
         }
-        cout << "Done populating request buffer" << endl;
-        *********************************************/
 
-        /* Multithreaded filling of buffer 
-        https://www.tutorialspoint.com/cplusplus/cpp_multithreading.htm */
-        pthread_t threads[NUM_REQUEST_THREADS + w + NUM_STAT_THREADS];
-        int numThreads = NUM_REQUEST_THREADS + w + NUM_STAT_THREADS;
-        int rc; 
+        // Variables for request threads
+        pthread_t request_threads[NUM_CLIENTS];
+        int r_error;
+        pthread_attr_t request_attr;
+        void *request_status;
+        request_data *rdata[NUM_CLIENTS];
 
-        // variables for waiting on thread
-        pthread_attr_t attr;
-        void *status;
-
-        // create an array of pointers
-        worker_data *wdata[3];
-        //memset(threads, 0, sizeof(threads));
-
-        const string names[3] = { "John Smith", "Jane Smith", "Joe Smith" };
-        for(int i = 0; i < 3; i++) {
-            // worker_data *temp = static_cast<worker_data *>(malloc(sizeof(worker_data)));
-            worker_data *temp = new worker_data();
-            // memset(temp, 0, sizeof(worker_data));
+        // populate request data array
+        for(int i = 0; i < NUM_CLIENTS; i++) {
+            request_data *temp = new request_data();
 
             temp->request_buffer = &request_buffer;
-            temp->name = names[i];
+            temp->name = client_names[i];
             temp->num_requests = n;
 
-            wdata[i] = temp;
+            rdata[i] = temp;
         }
 
-        // Initialize and set thread joinable
-        pthread_attr_init(&attr);
-        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+        pthread_attr_init(&request_attr);
+        pthread_attr_setdetachstate(&request_attr, PTHREAD_CREATE_JOINABLE);
 
-        for(int i = 0; i < NUM_REQUEST_THREADS; i++) {
-            cout << "Creating worker thread... " << endl;
-            rc = pthread_create(&threads[i], &attr, request_thread_function, (void *)wdata[i]);
+        // Variables for worker threads
+        pthread_t worker_threads[w];
+        int w_error;
+        pthread_attr_t worker_attr;
+        void *worker_status;
+        worker_data *wdata[w];
 
-            if (rc) {
-                cout << "Error:unable to create thread," << rc << endl;
-                exit(-1);
-            }
-        }
-
-
-
-        // cout << "Pushing quit requests... ";
-        // for(int i = 0; i < w; ++i) {
-        //     request_buffer.push("quit");
-        // }
-        // cout << "done." << endl;
-
-        // channel data struct array
-        channel_data *cdata[w];
-
-        for(int i = 3; i < w+3; i++) {
-
+        // populate worker data array and create the channels
+        for(int i = 0; i < w; i++) {
             chan->cwrite("newchannel");
 		    string s = chan->cread ();
             RequestChannel *workerChannel = new RequestChannel(s, RequestChannel::CLIENT_SIDE);
 
-            channel_data *temp = new channel_data();
+            worker_data *temp = new worker_data();
 
             // populate the temp struct
             temp->channel = workerChannel;
-            temp->hist = &hist;
             temp->request_buffer = &request_buffer;
+            temp->stat_buffers = reinterpret_cast<BoundedBuffer **>(&stat_buffers);
 
-            cdata[i-3] = temp;
-
-            cout << "Creating channel thread... " << endl;
-            rc = pthread_create(&threads[i], &attr, worker_thread_function, (void *)cdata[i-3]);
-
-            if (rc) {
-                cout << "Error:unable to create thread," << rc << endl;
-                exit(-1);
-            }
-            request_buffer.push("quit");
+            wdata[i] = temp;
         }
 
-        // for loop for stat threads
+        pthread_attr_init(&worker_attr);
+        pthread_attr_setdetachstate(&worker_attr, PTHREAD_CREATE_JOINABLE);
 
+        // Variables for stat threads
+        pthread_t stat_threads[NUM_CLIENTS];
+        int s_error;
+        pthread_attr_t stat_attr;
+        void *stat_status;
+        stat_data *sdata[NUM_CLIENTS];
 
-        // free attribute and wait for the other threads
-        pthread_attr_destroy(&attr);
-        for(int i = 0; i < numThreads-NUM_STAT_THREADS; i++ ) {
-            rc = pthread_join(threads[i], &status);
-            if (rc) {
-                cout << "Error:unable to join," << rc << endl;
+        // populate stat data array
+        for(int i = 0; i < NUM_CLIENTS; i++) {
+            stat_data *temp = new stat_data();
+
+            temp->hist = &hist;
+            temp->stat_buffer = stat_buffers[i];
+            temp->name = client_names[i];
+            temp->numRequests = n;
+
+            sdata[i] = temp;
+        } 
+
+        pthread_attr_init(&stat_attr);
+        pthread_attr_setdetachstate(&stat_attr, PTHREAD_CREATE_JOINABLE);
+
+        /* Get starting timepoint 
+        *  https://www.geeksforgeeks.org/measure-execution-time-function-cpp/
+        */
+        auto start = high_resolution_clock::now(); 
+
+        /* Multithreaded filling of request_buffer 
+        https://www.tutorialspoint.com/cplusplus/cpp_multithreading.htm */
+        for(int i = 0; i < NUM_CLIENTS; i++) {
+            //cout << "Creating request thread... " << i << endl;
+            r_error = pthread_create(&request_threads[i], &request_attr, request_thread_function, (void *)rdata[i]);
+
+            if (r_error) {
+                cout << "Error:unable to create thread," << r_error << endl;
+                exit(-1);
+            }
+        }
+
+        /* Multithreaded filling of stat buffers */
+        for(int i = 0; i < w; i++) {
+            w_error = pthread_create(&worker_threads[i], &worker_attr, worker_thread_function, (void *)wdata[i]);
+
+            if (w_error) {
+                cout << "Error:unable to create thread," << w_error << endl;
+                exit(-1);
+            }
+        }
+
+        /* Multithreaded filling of histogram */
+        for(int i = 0; i < NUM_CLIENTS; i++) {
+            //cout << "Creating stat thread... " << i << endl;
+            s_error = pthread_create(&stat_threads[i], &stat_attr, stat_thread_function, (void *)sdata[i]);
+
+            if (s_error) {
+                cout << "Error:unable to create thread," << s_error << endl;
+                exit(-1);
+            }
+        }
+
+        // (join request_threads) free attribute and wait for the other threads
+        pthread_attr_destroy(&request_attr);
+        for(int i = 0; i < NUM_CLIENTS; i++ ) {
+            r_error = pthread_join(request_threads[i], &request_status);
+            if (r_error) {
+                cout << "Error:unable to join," << r_error << endl;
                 exit(-1);
             }
       
-            cout << "Main: completed thread id :" << i ;
-            cout << "  exiting with status :" << status << endl;
+            //cout << "Main: completed request thread id :" << i ;
+            //cout << "  exiting with status :" << request_status << endl;
 
-            // if (i < 3) {
-            //     // delete that thread's struct
-            //     worker_data *temp = wdata[i];
-            //     free(temp);
-            // } else {
-            //     request_buffer.push("quit");
-            //     // delete that thread's struct
-            //     channel_data *temp = cdata[i-3];
-            //     free(temp);
-            // }
+            // delete that thread's struct
+            request_data *temp = rdata[i];
+            free(temp);
         }
+
+        //cout << "Pushing quit requests... ";
+        for(int i = 0; i < w; ++i) {
+            request_buffer.push("quit");
+        }
+        //cout << "done." << endl;
+	
+        // (join worker threads) free attribute and wait for the other threads
+        pthread_attr_destroy(&worker_attr);
+        for(int i = 0; i < w; i++ ) {
+            w_error = pthread_join(worker_threads[i], &worker_status);
+            if (w_error) {
+                cout << "Error:unable to join," << w_error << endl;
+                exit(-1);
+            }
+      
+            // cout << "Main: completed thread id :" << i ;
+            // cout << "  exiting with status :" << worker_status << endl;
+
+            // delete that thread's struct
+            worker_data *temp = wdata[i];
+            free(temp);
+        }
+
+        // (join stat threads) free attribute and wait for the other threads
+        pthread_attr_destroy(&stat_attr);
+        for(int i = 0; i < NUM_CLIENTS; i++ ) {
+            s_error = pthread_join(stat_threads[i], &stat_status);
+            if (s_error) {
+                cout << "Error:unable to join," << s_error << endl;
+                exit(-1);
+            }
+      
+            //cout << "Main: completed stat thread id :" << i ;
+            //cout << "  exiting with status :" << stat_status << endl;
+
+            // delete that thread's struct
+            stat_data *temp = sdata[i];
+            free(temp);
+        }
+
+        alarm(0);
+        signal(SIGALRM, SIG_DFL);
 
         chan->cwrite ("quit");
         delete chan;
+
         cout << "All Done!!!" << endl; 
 
+        system("clear");
 		hist.print ();
+
+        // Get ending timepoint 
+        auto stop = high_resolution_clock::now(); 
+  
+        // Get duration. Substart timepoints to  
+        // get durarion. To cast it to proper unit 
+        // use duration cast method 
+        auto duration = duration_cast<microseconds>(stop - start); 
+    
+        cout << "Took "
+            << duration.count() << " seconds" << endl;
+        
+        system("rm -rf fifo*");
     }
 }

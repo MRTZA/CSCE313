@@ -5,14 +5,21 @@ using namespace std;
 
 BoundedBuffer::BoundedBuffer(int _cap) {
 	max_size = _cap;
+	pthread_mutex_init(&m, nullptr);
+    pthread_cond_init(&cons, nullptr);
+    pthread_cond_init(&prod, nullptr);
 }
 
 BoundedBuffer::~BoundedBuffer() {
-	
+	pthread_mutex_init(&m, nullptr);
+    pthread_cond_init(&cons, nullptr);
+    pthread_cond_init(&prod, nullptr);
 }
 
 int BoundedBuffer::size() {
-	return q.size();
+	int size = q.size();
+
+	return size;
 }
 
 void BoundedBuffer::push(string str) {
@@ -20,12 +27,12 @@ void BoundedBuffer::push(string str) {
 	Is this function thread-safe??? Does this automatically wait for the pop() to make room 
 	when the buffer if full to capacity???
 	*/
-
+	
 	// lock mutex
 	pthread_mutex_lock (&m);
 
 	// check for overflow
-	while (size () == max_size){
+	while(size () == max_size){
         pthread_cond_wait(&prod, &m);
     }
 
