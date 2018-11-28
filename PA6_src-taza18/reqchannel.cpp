@@ -1,10 +1,10 @@
 /* 
-    File: requestchannel.C
+    File: reqchannel.C
 
-    Author: R. Bettati
+    Author: Murtaza H.
             Department of Computer Science
             Texas A&M University
-    Date  : 2012/07/11
+    Date  : 2018/20/11
 
 */
 
@@ -17,11 +17,10 @@
 /*--------------------------------------------------------------------------*/
 /* INCLUDES */
 /*--------------------------------------------------------------------------*/
-
 #include <cassert>
-#include <cstring>
+#include <typeinfo>
+#include <string>
 #include <iostream>
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -32,117 +31,129 @@
 
 #include "reqchannel.h"
 
-void EXITONERROR (string msg){
-	perror (msg.c_str());
-	exit (-1);
-}
-std::string RequestChannel::pipe_name(Mode _mode) {
-	std::string pname = "fifo_" + my_name;
-
-	if (my_side == CLIENT_SIDE) {
-		if (_mode == READ_MODE)
-			pname += "1";
-		else
-			pname += "2";
-	}
-	else {
-	/* SERVER_SIDE */
-		if (_mode == READ_MODE)
-			pname += "2";
-		else
-			pname += "1";
-	}
-	return pname;
-}
-void RequestChannel::create_pipe (string _pipe_name){
-	mkfifo(_pipe_name.c_str(), 0600) < 0; //{
-	//	EXITONERROR (_pipe_name);
-	//}
-}
-
-
-void RequestChannel::open_write_pipe(string _pipe_name) {
-	
-	//if (my_side == SERVER_SIDE)
-		create_pipe (_pipe_name);
-
-	wfd = open(_pipe_name.c_str(), O_WRONLY);
-	if (wfd < 0) {
-		EXITONERROR (_pipe_name);
-	}
-}
-
-void RequestChannel::open_read_pipe(string _pipe_name) {
-
-	//if (my_side == SERVER_SIDE)
-		create_pipe (_pipe_name);
-	rfd = open(_pipe_name.c_str (), O_RDONLY);
-	if (rfd < 0) {
-		perror ("");
-		exit (0);
-	}
-}
+#include "FIFORequestChannel.h"
+#include "MQRequestChannel.h"
+#include "SHMRequestChannel.h"
 
 /*--------------------------------------------------------------------------*/
-/* CONSTRUCTOR/DESTRUCTOR FOR CLASS   R e q u e s t C h a n n e l  */
+/* MEMBER FUNCTIONS */
 /*--------------------------------------------------------------------------*/
 
-RequestChannel::RequestChannel(const std::string _name, const Side _side) :
-my_name(_name), my_side(_side), side_name((_side == RequestChannel::SERVER_SIDE) ? "SERVER" : "CLIENT")
-{
-	if (_side == SERVER_SIDE) {
-		open_write_pipe(pipe_name(WRITE_MODE).c_str());
-		open_read_pipe(pipe_name(READ_MODE).c_str());
+RequestChannel::RequestChannel(const string _name, const Side _side) {
+	// check for parameter validity 
+	if(_name.size() == 0) {
+		cout << "error - name cant be empty" << endl;
+		exit(0);
 	}
-	else {
-		open_read_pipe(pipe_name(READ_MODE).c_str());
-		open_write_pipe(pipe_name(WRITE_MODE).c_str());
-	}
+
+	identifier = _name;
+	side = _side;
 }
 
 RequestChannel::~RequestChannel() {
-	close(wfd);
-	close(rfd);
-	//if (my_side == SERVER_SIDE) {
-		remove(pipe_name(READ_MODE).c_str());
-		remove(pipe_name(WRITE_MODE).c_str());
-	//}
-}
-
-const int MAX_MESSAGE = 255;
-
-string RequestChannel::cread() {
-
-	char buf [MAX_MESSAGE];
-	if (read(rfd, buf, MAX_MESSAGE) <= 0) {
-		EXITONERROR ("cread");
-	}
-	string s = buf;
-	return s;
-
-}
-
-void RequestChannel::cwrite(string msg) {
-
-	if (msg.size() > MAX_MESSAGE) {
-		EXITONERROR ("cwrite");
-	}
-	if (write(wfd, msg.c_str(), msg.size()+1) < 0) { // msg.size() + 1 to include the NULL byte
-		EXITONERROR ("cwrite");
+	/* Resource:
+	* https://stackoverflow.com/questions/3434256/use-the-auto-keyword-in-c-stl
+	*/
+	for(int i=0; i < f_names.size(); i++) {
+		deleteFile(f_names[i]);
 	}
 }
 
-std::string RequestChannel::name() {
-	return my_name;
+RequestChannel *RequestChannel::buildClient(string i, Type t) {
+	return RequestChannel::buildChannel(i, t, CLIENT_SIDE);
 }
 
-
-int RequestChannel::read_fd() {
-	return rfd;
+RequestChannel *RequestChannel::buildServer(string i, Type t) {
+	return RequestChannel::buildChannel(i, t, SERVER_SIDE);
 }
 
-int RequestChannel::write_fd() {
-	return wfd;
+RequestChannel *RequestChannel::buildChannel(string i, Type t, Side s) {
+	RequestChannel *chan = nullptr; // initialize empty channel
+
+	if(t == FIFO) {
+		chan = new FIFORequestChannel(i, s);
+	} 
+	else if(t == SHM) {
+		/* do nothing rn */
+		chan = new SHMRequestChannel(i, s);
+	}
+	else if(t == MQ) {
+		/* do nothing rn */
+		chan = new MQRequestChannel(i, s);
+	}
+	else {
+		cout << "error - invalid channel type" << endl;
+	}
+
+	return chan;
+
+}
+
+void RequestChannel::createFile(string i) {
+	/* Resource:
+	* https://stackoverflow.com/questions/2245193/why-does-open-create-my-file-with-the-wrong-permissions
+	*/
+	int fd = open(i.c_str(), O_RDWR|O_CREAT, 0666);
+
+	if(fd < 0 && errno != EEXIST) {
+		cout << "error - could not open file" << endl;
+	}
+
+	// update vector of names
+	f_names.push_back(i);
+	close(fd);
+}
+
+void RequestChannel::deleteFile(string i) {
+	/* Resource:
+  	* https://stackoverflow.com/questions/2192415/unlink-vs-remove-in-c
+  	*/
+	int err = unlink(i.c_str());
+
+	if(err == -1 && errno != ENOENT) {
+		cout << "error - could not delete file" << endl;
+	}
+}
+
+key_t RequestChannel::fileKey(string i) {
+	key_t key = ftok(i.c_str(), 0);
+
+	if(key == -1) {
+		cout << "error = could not execute ftok()" << endl;
+	}
+
+  	return key;
+}
+
+string RequestChannel::getIdentifier(Side s, Mode m) {
+	/* Resource:
+	* https://en.cppreference.com/w/cpp/language/typeid
+	*/
+	string id = "";
+	
+	// first get channel type
+	if(typeid(*this) == typeid(FIFORequestChannel)) {
+		id += "Type: FIFO ";
+	}
+	else if(typeid(*this) == typeid(MQRequestChannel)) {
+		id += "Type: MQ ";
+	}
+	else if(typeid(*this) == typeid(SHMRequestChannel)) {
+		id += "Type: SHM ";
+	}
+
+	// get channel identifier
+	id += "ID: " + identifier;
+
+	// get channel side
+	if(s = SERVER_SIDE) {
+		id += "Side: SERVER_SIDE";
+	}
+	else {
+		id += "Side: CLIENT_SIDE";
+	}
+
+	return id;
 }
 
 
