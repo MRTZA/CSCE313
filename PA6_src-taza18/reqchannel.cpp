@@ -75,11 +75,11 @@ RequestChannel *RequestChannel::buildChannel(string i, Type t, Side s) {
 	} 
 	else if(t == SHM) {
 		/* do nothing rn */
-		chan = new SHMRequestChannel(i, s);
+		// chan = new SHMRequestChannel(i, s);
 	}
 	else if(t == MQ) {
 		/* do nothing rn */
-		chan = new MQRequestChannel(i, s);
+		// chan = new MQRequestChannel(i, s);
 	}
 	else {
 		cout << "error - invalid channel type" << endl;
@@ -135,12 +135,12 @@ string RequestChannel::getIdentifier(Side s, Mode m) {
 	if(typeid(*this) == typeid(FIFORequestChannel)) {
 		id += "Type: FIFO ";
 	}
-	else if(typeid(*this) == typeid(MQRequestChannel)) {
-		id += "Type: MQ ";
-	}
-	else if(typeid(*this) == typeid(SHMRequestChannel)) {
-		id += "Type: SHM ";
-	}
+	// else if(typeid(*this) == typeid(MQRequestChannel)) {
+	// 	id += "Type: MQ ";
+	// }
+	// else if(typeid(*this) == typeid(SHMRequestChannel)) {
+	// 	id += "Type: SHM ";
+	// }
 
 	// get channel identifier
 	id += "ID: " + identifier;
