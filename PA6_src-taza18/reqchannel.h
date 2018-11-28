@@ -28,12 +28,14 @@
 
 using namespace std;
 
+/* Resource:
+* https://stackoverflow.com/questions/20426716/how-do-i-use-typedef-and-typedef-enum-in-c
+* Outside of class so client.cpp can access it
+*/
+typedef enum {FIFO, SHM, MQ} Type;
+
 class RequestChannel {
 	public:
-		/* Resource:
-		* https://stackoverflow.com/questions/20426716/how-do-i-use-typedef-and-typedef-enum-in-c
-		*/
-		typedef enum {FIFO, SHM, MQ} Type;
 		typedef enum {SERVER_SIDE, CLIENT_SIDE} Side;
 		// Added IGNORE for error handling
 		typedef enum {READ_MODE, WRITE_MODE, IGNORE_MODE} Mode;

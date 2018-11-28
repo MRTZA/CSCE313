@@ -32,6 +32,9 @@
 #include <signal.h>
 
 #include "reqchannel.h"
+#include "FIFORequestChannel.h"
+#include "MQRequestChannel.h"
+#include "SHMRequestChannel.h"
 #include "BoundedBuffer.h"
 #include "Histogram.h"
 using namespace std;
@@ -203,9 +206,10 @@ void* stat_thread_function(void* arg) {
 /*--------------------------------------------------------------------------*/
 
 int main(int argc, char * argv[]) {
-    int n = 100000; //default number of requests per "patient"
-    int w = 1000; //default number of worker threads
+    int n = 10000; //default number of requests per "patient"
+    int w = 100; //default number of worker threads
     int b = 500; // default capacity of the request buffer, you should change this default
+    Type IPCmech = FIFO; // default channel type
     int opt = 0;
     while ((opt = getopt(argc, argv, "n:w:b:")) != -1) {
         switch (opt) {
@@ -218,6 +222,22 @@ int main(int argc, char * argv[]) {
             case 'b':
                 b = atoi (optarg);
                 break;
+            case 'i': {
+                switch(optarg[0]) {
+                    case 'f':
+                        IPCmech = FIFO;
+                        break;
+                    case 'q':
+                        IPCmech = MQ;
+                        break;
+                    case 's':
+                        IPCmech = SHM;
+                        break;
+                    default:
+                        cout << "invalid channel type " << optarg[0] << endl;
+                        return -1;
+                }
+            }
 		}
     }
 
@@ -230,8 +250,20 @@ int main(int argc, char * argv[]) {
         cout << "n == " << n << endl;
         cout << "w == " << w << endl;
         cout << "b == " << b << endl;
+        
+        switch(IPCmech) {
+            case FIFO:
+                cout << "i == FIFO" << endl;
+                break;
+            case MQ:
+                cout << "i == MQ" << endl;
+                break;
+            case SHM: 
+                cout << "i == SHM" << endl;
+                break;
+        }
 
-        RequestChannel *chan = new RequestChannel("control", RequestChannel::CLIENT_SIDE);
+        RequestChannel *chan = RequestChannel::buildClient("control", IPCmech);
         
         // Instantiate all "global" variables needed
         BoundedBuffer request_buffer(b);
@@ -289,7 +321,7 @@ int main(int argc, char * argv[]) {
         for(int i = 0; i < w; i++) {
             chan->cwrite("newchannel");
 		    string s = chan->cread ();
-            RequestChannel *workerChannel = new RequestChannel(s, RequestChannel::CLIENT_SIDE);
+            RequestChannel *workerChannel = RequestChannel::buildClient(s, IPCmech);
 
             worker_data *temp = new worker_data();
 

@@ -30,7 +30,7 @@ using namespace std;
 */
 struct msg_buffer {
     long type;
-    char payload[MQRequestChannel::MaxMsg];
+    // char payload[MQRequestChannel::MaxMsg];
 };
 
 class MQRequestChannel : public RequestChannel {
