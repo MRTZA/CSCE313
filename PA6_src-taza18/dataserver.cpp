@@ -11,6 +11,9 @@
 #include <stdlib.h>
 
 #include "reqchannel.h"
+#include "FIFORequestChannel.h"
+#include "MQRequestChannel.h"
+#include "SHMRequestChannel.h"
 #include <pthread.h>
 using namespace std;
 
@@ -23,10 +26,22 @@ void process_newchannel(RequestChannel* _channel) {
 	nchannels ++;
 	string new_channel_name = "data" + to_string(nchannels) + "_";
 	_channel->cwrite(new_channel_name);
-	RequestChannel * data_channel = new RequestChannel(new_channel_name, RequestChannel::SERVER_SIDE);
+	RequestChannel* data_channel = nullptr;
+	if(_channel->getType() == 'f') {
+		data_channel = new FIFORequestChannel(new_channel_name, RequestChannel::SERVER_SIDE);
+	}
+	else if(_channel->getType() == 'q') {
+		data_channel = new MQRequestChannel(new_channel_name, RequestChannel::SERVER_SIDE);
+	}
+	else if(_channel->getType() == 's') {
+		data_channel = new SHMRequestChannel(new_channel_name, RequestChannel::SERVER_SIDE);
+	}
+	else {
+		data_channel = new FIFORequestChannel(new_channel_name, RequestChannel::SERVER_SIDE);
+	}
 	pthread_t thread_id;
 	if (pthread_create(& thread_id, NULL, handle_process_loop, data_channel) < 0 ) {
-		EXITONERROR ("");
+		EXITONERROR("");
 	}
 	
 }
@@ -66,8 +81,33 @@ void* handle_process_loop (void* _channel) {
 
 
 int main(int argc, char * argv[]) {
+	int opt = 0;
+	string i = "f"; // defualt is fifo
+
+	// figure out which channel type is being used
+	while((opt = getopt(argc, argv, "i:")) != -1) {
+		switch(opt) {
+			case 'i': 
+				i = strdup(optarg);
+				break;
+		}
+	}
+	
 	newchannel_lock = PTHREAD_MUTEX_INITIALIZER;
-	RequestChannel control_channel("control", RequestChannel::SERVER_SIDE);
-	handle_process_loop (&control_channel);	
+	// do same as above
+	RequestChannel *control_channel = nullptr;
+	if(i == "f") {
+		control_channel = new FIFORequestChannel("control", RequestChannel::SERVER_SIDE);
+	}
+	else if(i == "q") {
+		control_channel = new MQRequestChannel("control", RequestChannel::SERVER_SIDE);
+	}
+	else if(i == "s") {
+		control_channel = new SHMRequestChannel("control", RequestChannel::SERVER_SIDE);
+	} 
+	else {
+		control_channel = new FIFORequestChannel("control", RequestChannel::SERVER_SIDE);
+	}
+	handle_process_loop (control_channel);	
 }
 

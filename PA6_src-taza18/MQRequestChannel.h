@@ -21,31 +21,29 @@
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <sys/types.h>
+#include <mqueue.h>
 #include "reqchannel.h"
 
 using namespace std;
 
-/* Resource: 
-* https://www.geeksforgeeks.org/ipc-using-message-queues/
-*/
-struct msg_buffer {
-    long type;
-    // char payload[MQRequestChannel::MaxMsg];
-};
-
 class MQRequestChannel : public RequestChannel {
-    friend struct msg_buffer;
+    // friend struct msg_buffer;
 
     public:
         MQRequestChannel(const std::string _name, const Side _side);
-        virtual ~MQRequestChannel();
+        ~MQRequestChannel();
 
-        virtual string cread();
-        virtual int cwrite(string msg);
+        string cread();
+        void cwrite(string _msg);
+
+        int send() { return snd; }
+        int recieve() { return rcv; }
 
     private:
         static const size_t QueueSize = (1024 * 2); // size of queue
         static const size_t MaxMsg = 256; // max size of message
+
+        key_t key;
 
         key_t keyClient;
         int msgidClient;
@@ -53,7 +51,19 @@ class MQRequestChannel : public RequestChannel {
         key_t keyServer;
         int msgidServer;
 
+        int msgid;
+        int snd;
+        int rcv;
+
         void setmsgInfo(int msgid);
 };
+
+/* Resource: 
+* https://www.geeksforgeeks.org/ipc-using-message-queues/
+*/
+// struct msg_buffer {
+//     long type;
+//     // char payload[MQRequestChannel::MaxMsg];
+// } g_msg_buffer;
 
 #endif

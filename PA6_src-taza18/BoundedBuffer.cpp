@@ -11,9 +11,9 @@ BoundedBuffer::BoundedBuffer(int _cap) {
 }
 
 BoundedBuffer::~BoundedBuffer() {
-	pthread_mutex_init(&m, nullptr);
-    pthread_cond_init(&cons, nullptr);
-    pthread_cond_init(&prod, nullptr);
+	pthread_mutex_destroy(&m);
+    pthread_cond_destroy(&cons);
+    pthread_cond_destroy(&prod);
 }
 
 int BoundedBuffer::size() {

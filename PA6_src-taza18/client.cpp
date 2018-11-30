@@ -206,12 +206,12 @@ void* stat_thread_function(void* arg) {
 /*--------------------------------------------------------------------------*/
 
 int main(int argc, char * argv[]) {
-    int n = 10000; //default number of requests per "patient"
+    int n = 1000; //default number of requests per "patient"
     int w = 100; //default number of worker threads
     int b = 500; // default capacity of the request buffer, you should change this default
-    Type IPCmech = FIFO; // default channel type
+    string IPCmech = "f"; // default channel type
     int opt = 0;
-    while ((opt = getopt(argc, argv, "n:w:b:")) != -1) {
+    while ((opt = getopt(argc, argv, "n:w:b:i:")) != -1) {
         switch (opt) {
             case 'n':
                 n = atoi(optarg);
@@ -223,47 +223,37 @@ int main(int argc, char * argv[]) {
                 b = atoi (optarg);
                 break;
             case 'i': {
-                switch(optarg[0]) {
-                    case 'f':
-                        IPCmech = FIFO;
-                        break;
-                    case 'q':
-                        IPCmech = MQ;
-                        break;
-                    case 's':
-                        IPCmech = SHM;
-                        break;
-                    default:
-                        cout << "invalid channel type " << optarg[0] << endl;
-                        return -1;
-                }
+                IPCmech = strdup(optarg);
+                break;
             }
 		}
     }
 
     int pid = fork();
 	if (pid == 0){
-		execl("dataserver", (char*) NULL);
+        // tell dataserver what channel type is being used
+		execl("dataserver", "dataserver", "-i", IPCmech.c_str(), (char*) NULL);
 	}
 	else {
 
         cout << "n == " << n << endl;
         cout << "w == " << w << endl;
         cout << "b == " << b << endl;
-        
-        switch(IPCmech) {
-            case FIFO:
-                cout << "i == FIFO" << endl;
-                break;
-            case MQ:
-                cout << "i == MQ" << endl;
-                break;
-            case SHM: 
-                cout << "i == SHM" << endl;
-                break;
-        }
+        cout << "i == " << IPCmech << endl;
 
-        RequestChannel *chan = RequestChannel::buildClient("control", IPCmech);
+        RequestChannel *chan = nullptr;
+        if(IPCmech == "f") {
+		    chan = new FIFORequestChannel("control", RequestChannel::CLIENT_SIDE);
+        }
+        else if(IPCmech == "q") {
+            chan = new MQRequestChannel("control", RequestChannel::CLIENT_SIDE);
+        }
+        else if(IPCmech == "s") {
+            chan = new SHMRequestChannel("control", RequestChannel::CLIENT_SIDE);
+        } 
+        else {
+            chan = new FIFORequestChannel("control", RequestChannel::CLIENT_SIDE);
+        }
         
         // Instantiate all "global" variables needed
         BoundedBuffer request_buffer(b);
@@ -321,7 +311,18 @@ int main(int argc, char * argv[]) {
         for(int i = 0; i < w; i++) {
             chan->cwrite("newchannel");
 		    string s = chan->cread ();
-            RequestChannel *workerChannel = RequestChannel::buildClient(s, IPCmech);
+            RequestChannel *workerChannel = nullptr;
+            if(chan->getType() == 'f') {
+		        workerChannel = new FIFORequestChannel(s, RequestChannel::CLIENT_SIDE);
+            }
+            else if(chan->getType() == 'q') {
+                workerChannel = new MQRequestChannel(s, RequestChannel::CLIENT_SIDE);
+            }
+            else if(chan->getType() == 's') {
+                workerChannel = new SHMRequestChannel(s, RequestChannel::CLIENT_SIDE);
+            } else {
+                workerChannel = new FIFORequestChannel(s, RequestChannel::CLIENT_SIDE);
+            }
 
             worker_data *temp = new worker_data();
 
@@ -374,6 +375,7 @@ int main(int argc, char * argv[]) {
                 exit(-1);
             }
         }
+        cout << "Finished Creating Request Threads" << endl;
 
         /* Multithreaded filling of stat buffers */
         for(int i = 0; i < w; i++) {
@@ -384,6 +386,7 @@ int main(int argc, char * argv[]) {
                 exit(-1);
             }
         }
+        cout << "Finished Creating Worker Threads" << endl;
 
         /* Multithreaded filling of histogram */
         for(int i = 0; i < NUM_CLIENTS; i++) {
@@ -395,6 +398,7 @@ int main(int argc, char * argv[]) {
                 exit(-1);
             }
         }
+        cout << "Finished Creating Stat Threads" << endl;
 
         // (join request_threads) free attribute and wait for the other threads
         pthread_attr_destroy(&request_attr);
@@ -473,7 +477,7 @@ int main(int argc, char * argv[]) {
         auto duration = duration_cast<microseconds>(stop - start); 
     
         cout << "Took "
-            << duration.count() << " seconds" << endl;
+            << duration.count() << " microseconds" << endl;
         
         system("rm -rf fifo*");
     }
